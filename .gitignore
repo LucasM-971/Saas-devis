@@ -47,3 +47,6 @@ coverage/
 ROADMAP.md
 TODOS.md
 architecture-mvc.md
+
+.claude/
+.impeccable/
