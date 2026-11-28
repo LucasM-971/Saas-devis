@@ -37,7 +37,8 @@ import { api } from '@/lib/api';
 import { ChatThread } from '@/components/chat/ChatThread';
 import { accentStyle } from '@/components/chat/accent';
 import { starterSuggestions, uid, useChatConversation } from '@/lib/chat-engine';
-import { DEFAULT_BLOCS, DEFAULT_QAS } from '@/lib/chat-defaults';
+import { DEFAULT_QAS, defaultBlocsFor } from '@/lib/chat-defaults';
+import { getTrade, type Trade } from '@/lib/trades';
 import { blocLabel, type MatchSource, type MessageBloc, type QA, type TarifM2 } from '@/lib/chat-match';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -93,6 +94,7 @@ export default function ChatAI() {
   const [dirty, setDirty] = useState(false);
 
   const companyId = activeMembership?.company.id;
+  const trade = getTrade(activeMembership?.company.metier);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,7 +153,7 @@ export default function ChatAI() {
           blocs={blocs} setBlocs={markDirty(setBlocs)}
           prixM2={prixM2} setPrixM2={markDirty(setPrixM2)}
           tarifs={tarifs} setTarifs={markDirty(setTarifs)}
-          dirty={dirty} onSave={save}
+          dirty={dirty} onSave={save} trade={trade}
         />
       )}
       {loadState === 'ready' && tab === 'preview' && (
@@ -167,7 +169,7 @@ export default function ChatAI() {
 // ─── Onglet Base de connaissances ─────────────────────────────────────────────
 
 function KnowledgeTab({
-  qas, setQas, blocs, setBlocs, prixM2, setPrixM2, tarifs, setTarifs, dirty, onSave,
+  qas, setQas, blocs, setBlocs, prixM2, setPrixM2, tarifs, setTarifs, dirty, onSave, trade,
 }: {
   qas: QA[];
   setQas: React.Dispatch<React.SetStateAction<QA[]>>;
@@ -179,6 +181,7 @@ function KnowledgeTab({
   setTarifs: React.Dispatch<React.SetStateAction<TarifM2[]>>;
   dirty: boolean;
   onSave: () => Promise<void>;
+  trade?: Trade;
 }) {
   const isEmpty = qas.length === 0 && blocs.length === 0 && !prixM2 && tarifs.length === 0;
 
@@ -195,7 +198,7 @@ function KnowledgeTab({
               size="sm"
               onClick={() => {
                 setQas(DEFAULT_QAS.map((q) => ({ ...q, id: uid() })));
-                setBlocs(DEFAULT_BLOCS.map((b) => ({ ...b, id: uid(), buttons: [...b.buttons] })));
+                setBlocs(defaultBlocsFor(trade).map((b) => ({ ...b, id: uid() })));
               }}
             >
               <Sparkles className="size-4" /> Charger le modèle de départ
@@ -204,8 +207,11 @@ function KnowledgeTab({
         </Card>
       )}
 
-      <KnowledgeToolbar qas={qas} setQas={setQas} blocs={blocs} setBlocs={setBlocs} prixM2={prixM2} setPrixM2={setPrixM2} tarifs={tarifs} setTarifs={setTarifs} dirty={dirty} onSave={onSave} />
-      <MesureSection prixM2={prixM2} setPrixM2={setPrixM2} tarifs={tarifs} setTarifs={setTarifs} />
+      <KnowledgeToolbar qas={qas} setQas={setQas} blocs={blocs} setBlocs={setBlocs} prixM2={prixM2} setPrixM2={setPrixM2} tarifs={tarifs} setTarifs={setTarifs} dirty={dirty} onSave={onSave} trade={trade} />
+      {/* Tarif au m² : seulement pour les métiers chiffrés au m² (ou si déjà renseigné). */}
+      {(!trade || trade.m2Categories || prixM2 || tarifs.length > 0) && (
+        <MesureSection prixM2={prixM2} setPrixM2={setPrixM2} tarifs={tarifs} setTarifs={setTarifs} categories={trade?.m2Categories ?? CATEGORIES_SUGGEREES} />
+      )}
       <QASection qas={qas} setQas={setQas} />
       <BlocsSection blocs={blocs} setBlocs={setBlocs} />
     </div>
@@ -217,7 +223,7 @@ function KnowledgeTab({
 type KnowledgeBackup = { version: number; prixM2: string; tarifs?: TarifM2[]; qas: QA[]; blocs: MessageBloc[] };
 
 function KnowledgeToolbar({
-  qas, setQas, blocs, setBlocs, prixM2, setPrixM2, tarifs, setTarifs, dirty, onSave,
+  qas, setQas, blocs, setBlocs, prixM2, setPrixM2, tarifs, setTarifs, dirty, onSave, trade,
 }: {
   qas: QA[];
   setQas: React.Dispatch<React.SetStateAction<QA[]>>;
@@ -229,6 +235,7 @@ function KnowledgeToolbar({
   setTarifs: React.Dispatch<React.SetStateAction<TarifM2[]>>;
   dirty: boolean;
   onSave: () => Promise<void>;
+  trade?: Trade;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -285,7 +292,7 @@ function KnowledgeToolbar({
   const handleReset = () => {
     if (!window.confirm('Réinitialiser la base de connaissances aux valeurs par défaut ? Vos Q&R et messages personnalisés seront remplacés.')) return;
     setQas(DEFAULT_QAS);
-    setBlocs(DEFAULT_BLOCS);
+    setBlocs(defaultBlocsFor(trade));
     setPrixM2('');
     setTarifs([]);
     flash('ok', 'Base réinitialisée aux valeurs par défaut.');
@@ -320,8 +327,9 @@ function KnowledgeToolbar({
 const CATEGORIES_SUGGEREES = ['Sol', 'Mur', 'Plafond', 'Toiture', 'Façade', 'Isolation'];
 
 function MesureSection({
-  prixM2, setPrixM2, tarifs, setTarifs,
+  prixM2, setPrixM2, tarifs, setTarifs, categories,
 }: {
+  categories: string[];
   prixM2: string;
   setPrixM2: React.Dispatch<React.SetStateAction<string>>;
   tarifs: TarifM2[];
@@ -348,9 +356,9 @@ function MesureSection({
       <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
         <Ruler className="size-4 text-slate-400" />
         <div>
-          <h2 className="text-base font-medium text-slate-900">Mesure</h2>
+          <h2 className="text-base font-medium text-slate-900">Tarifs au m²</h2>
           <p className="mt-0.5 text-sm text-slate-500">
-            L'assistant s'en sert pour répondre aux questions de prix
+            L'assistant s'en sert pour répondre aux questions de prix au m².
           </p>
         </div>
       </div>
@@ -387,7 +395,7 @@ function MesureSection({
           </p>
         </div>
         <datalist id="categories-m2">
-          {CATEGORIES_SUGGEREES.map((c) => <option key={c} value={c} />)}
+          {categories.map((c) => <option key={c} value={c} />)}
         </datalist>
         {tarifs.length > 0 && (
           <div className="flex flex-col gap-2">

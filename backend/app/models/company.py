@@ -22,8 +22,8 @@ class Company(IdMixin, TimestampMixin, Base):
     contact_phone: Mapped[str | None] = mapped_column(String(30))
     # TVA par défaut en ratio (0.200 = 20 %), alignée sur le front.
     default_vat_rate: Mapped[Decimal] = mapped_column(Numeric(4, 3), default=Decimal("0.200"))
-    # Métier du bâtiment (définit le catalogue)
-    metier: Mapped[str | None] = mapped_column(String(30))
+    # Métiers du bâtiment, séparés par des virgules ; le premier est le principal.
+    metier: Mapped[str | None] = mapped_column(String(120))
     plan: Mapped[str] = mapped_column(Enum(*PLANS), default="free")
     is_active: Mapped[bool] = mapped_column(default=True)
 

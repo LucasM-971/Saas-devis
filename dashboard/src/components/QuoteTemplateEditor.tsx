@@ -381,7 +381,7 @@ export function QuoteTemplateEditor() {
       {tab === 'layout' && (
         <div className="space-y-4">
           <div className="overflow-x-auto">
-            <QuoteCanvasEditor tpl={tpl} onChange={onLayoutChange} />
+            <QuoteCanvasEditor tpl={tpl} company={companyForPdf} onChange={onLayoutChange} />
           </div>
         </div>
       )}

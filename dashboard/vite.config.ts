@@ -15,6 +15,8 @@ export default defineConfig({
   server: {
     // PORT est injecté par les previews (agents) ; 5173 sinon.
     port: Number(process.env.PORT) || 5173,
+    // Domaines OrbStack (*.orb.local)
+    allowedHosts: ['.orb.local'],
     // Proxy /api vers le backend (même origine)
     proxy: {
       '/api': process.env.API_PROXY_TARGET || 'http://localhost:8000',

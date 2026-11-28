@@ -199,6 +199,8 @@ def _ollama_call(*, system: str, messages: list[dict], schema: dict) -> dict:
         "messages": [{"role": "system", "content": system}, *messages],
         "format": schema,
         "stream": False,
+        # Garde le modèle en mémoire : évite le rechargement (plusieurs secondes) à chaque requête.
+        "keep_alive": "1h",
         "options": {"num_predict": 2048},
     }
     try:
@@ -275,6 +277,20 @@ _ASKS_CONTACT = re.compile(r"coordonn|e-?mail|t[ée]l[ée]phone|pr[ée]nom|votre
 _PERSONAL_DATA = re.compile(r"@|\d[\d .()+-]{5,}")
 
 
+# Retire de la réponse les libellés de boutons recopiés par le modèle (sinon affichés deux fois).
+def strip_button_labels(answer: str, buttons: list[str]) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", answer, flags=re.IGNORECASE)
+    for label in buttons:
+        lab = re.escape(label)
+        # En gras n'importe où, ou seul sur sa ligne ; jamais au milieu d'une phrase.
+        text = re.sub(r"\*\*\s*" + lab + r"\s*\*\*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"^[ \t]*[-•]?[ \t]*" + lab + r"[ \t]*$", "", text, flags=re.IGNORECASE | re.MULTILINE)
+    # Nettoie les connecteurs orphelins (« ou », « / », « - ») laissés en fin de ligne.
+    text = re.sub(r"[ \t]*(?:\b(?:ou|et)\b|[/|•-])(?:[ \t]*(?:\b(?:ou|et)\b|[/|•-]))*[ \t]*$", "", text, flags=re.MULTILINE | re.IGNORECASE)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def filter_buttons(answer: str, buttons: list[str]) -> list[str]:
     if _ASKS_CONTACT.search(answer):
         return []
@@ -309,12 +325,13 @@ def generate_reply(
         effort="medium",
     )
 
-    answer = str(data.get("answer", "")).strip()
+    buttons = clean_buttons(data.get("buttons", []))
+    answer = strip_button_labels(str(data.get("answer", "")).strip(), buttons)
     if not answer:
         # Réponse vide inaffichable : le front bascule sur le matching local.
         raise LLMUnavailable("Réponse LLM vide")
 
-    response = ChatResponse(answer=answer, buttons=filter_buttons(answer, clean_buttons(data.get("buttons", []))))
+    response = ChatResponse(answer=answer, buttons=filter_buttons(answer, buttons))
     # Copie à l'écriture aussi : l'appelant ne doit pas pouvoir muter l'entrée.
     _cache_put(key, response.model_copy(deep=True))
     return response

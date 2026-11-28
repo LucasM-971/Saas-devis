@@ -19,6 +19,7 @@ type ApiCompany = {
   contactPhone: string | null;
   defaultVatRate: number;
   metier: string | null;
+  metiers?: string[];
   plan: Plan;
 };
 
@@ -43,6 +44,7 @@ function toCompany(c: ApiCompany): Company {
     contactPhone: c.contactPhone ?? undefined,
     defaultVatRate: c.defaultVatRate,
     metier: (c.metier as TradeId | null) ?? undefined,
+    metiers: (c.metiers ?? (c.metier ? [c.metier] : [])) as TradeId[],
     plan: c.plan,
   };
 }

@@ -12,7 +12,8 @@ class CompanyDetailOut(BaseModel):
     contactEmail: str | None = None
     contactPhone: str | None = None
     defaultVatRate: float = 0.2
-    metier: str | None = None
+    metier: str | None = None  # métier principal
+    metiers: list[str] = []
     plan: str = "free"
     # Mentions légales françaises (affichées sur les devis).
     legalForm: str | None = None
@@ -37,6 +38,7 @@ class CompanyUpdateIn(BaseModel):
     contactPhone: str | None = Field(default=None, max_length=30)
     defaultVatRate: float | None = Field(default=None, ge=0, le=1)
     metier: str | None = Field(default=None, max_length=30)
+    metiers: list[str] | None = Field(default=None, max_length=6)
     # Mentions légales françaises (facultatives, mise à jour partielle).
     legalForm: str | None = Field(default=None, max_length=60)
     shareCapital: str | None = Field(default=None, max_length=40)

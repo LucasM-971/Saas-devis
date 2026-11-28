@@ -7,7 +7,6 @@ import {
   Building2,
   Check,
   ClipboardList,
-  MapPin,
   Plus,
   Trash2,
   UserRound,
@@ -29,7 +28,6 @@ import { api } from '@/lib/api';
 import { mergeCatalog, presetCatalog } from '@/lib/catalog';
 import { getTrade, type CatalogItem, type TradeId } from '@/lib/trades';
 import { UNIT_OPTIONS, unitLabel } from '@/lib/units';
-import { formatPercent } from '@/lib/format';
 import {
   companySchema,
   profileSchema,
@@ -61,7 +59,7 @@ export default function Settings() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Réglages" subtitle="Gérez votre compte, votre entreprise et votre équipe." />
+      <PageHeader title="Réglages" />
       <Tabs tabs={TABS} active={tab} onChange={setTab} className="mb-6" />
 
       {tab === 'profil' && <ProfileSection />}
@@ -310,36 +308,42 @@ function CompanySection() {
 // Choix du métier + grille tarifaire (persistés via l'API : company.metier + price_items).
 function CatalogSection() {
   const { activeMembership, refreshSession } = useAuth();
-  const companyMetier = activeMembership?.company.metier ?? null;
+  const company = activeMembership?.company;
+  // Repli sur `metier` pour les sessions enregistrées avant le multi-métiers.
+  const companyMetiers = company?.metiers ?? (company?.metier ? [company.metier] : []);
 
   const { data: apiItems, loading, error: loadError } = useApi<CatalogItem[]>('/api/v1/pricing/items');
-  const [metier, setMetier] = useState<TradeId | null>(companyMetier);
+  const [metiers, setMetiers] = useState<TradeId[]>(companyMetiers);
+  const [draftMetiers, setDraftMetiers] = useState<TradeId[]>(companyMetiers);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [editingMetier, setEditingMetier] = useState(false);
 
   // Initialise la grille depuis l'API (une fois chargée).
   useEffect(() => {
     if (apiItems) setItems(apiItems);
   }, [apiItems]);
 
-  const trade = getTrade(metier);
   const touch = () => {
     setSaved(false);
     setSaveError('');
+    setDirty(true);
   };
 
-  // Choisir un métier : sur un catalogue vide, on pré-remplit avec ses prestations types.
-  const chooseMetier = (id: TradeId) => {
-    setMetier(id);
-    setItems((prev) => (prev.length === 0 ? presetCatalog(id) : prev));
+  // Valide les métiers cochés et ajoute les prix courants des métiers nouvellement choisis.
+  const applyMetiers = () => {
+    const added = draftMetiers.filter((id) => !metiers.includes(id));
+    setMetiers(draftMetiers);
+    setItems((prev) => added.reduce((acc, id) => mergeCatalog(acc, presetCatalog(id)), prev));
+    setEditingMetier(false);
     touch();
   };
 
   const loadPreset = () => {
-    if (!metier) return;
-    setItems((prev) => mergeCatalog(prev, presetCatalog(metier)));
+    setItems((prev) => metiers.reduce((acc, id) => mergeCatalog(acc, presetCatalog(id)), prev));
     touch();
   };
 
@@ -365,8 +369,9 @@ function CatalogSection() {
         .map(({ label, unit, unitPrice }) => ({ label, unit, unitPrice }));
       const savedItems = await api.put<CatalogItem[]>('/api/v1/pricing/items', body);
       setItems(savedItems);
-      if (metier && metier !== companyMetier) {
-        await api.patch('/api/v1/companies/current', { metier });
+      setDirty(false);
+      if (metiers.join() !== companyMetiers.join()) {
+        await api.patch('/api/v1/companies/current', { metiers });
         await refreshSession();
       }
       setSaved(true);
@@ -388,117 +393,154 @@ function CatalogSection() {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <Card className="border-brand-100 bg-brand-50">
-        <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-600 text-white">
-            <ClipboardList className="size-5" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-brand-800">Votre catalogue de prestations</p>
-            <p className="mt-1 text-sm text-brand-700">
-              Choisissez votre métier : la grille se pré-remplit avec les prestations les plus
-              courantes (unités et prix indicatifs). Vous ajustez tout ce que vous voulez, puis elle
-              alimente vos devis et le chiffrage IA.
-            </p>
-          </div>
+  if (metiers.length === 0 || editingMetier) {
+    return (
+      <Card padded={false}>
+        <div className="px-5 pt-5 pb-4">
+          <h2 className="text-base font-semibold text-slate-900">Vos métiers</h2>
+        </div>
+        <div className="px-5 pb-5">
+          <TradePicker value={draftMetiers} onChange={setDraftMetiers} />
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+          {metiers.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setDraftMetiers(metiers);
+                setEditingMetier(false);
+              }}
+            >
+              Annuler
+            </Button>
+          )}
+          <Button size="sm" disabled={draftMetiers.length === 0} onClick={applyMetiers}>
+            Valider{draftMetiers.length > 1 ? ` (${draftMetiers.length})` : ''}
+          </Button>
         </div>
       </Card>
+    );
+  }
 
-      <Card>
-        <CardHeader title="Votre métier" subtitle="Sélectionnez l'activité qui vous correspond." />
-        <TradePicker value={metier} onChange={chooseMetier} />
-      </Card>
+  return (
+    <Card padded={false}>
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5 pb-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Vos prix</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setDraftMetiers(metiers);
+            setEditingMetier(true);
+          }}
+          className="flex max-w-full flex-wrap items-center justify-end gap-1.5 rounded-lg p-1 text-sm hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+        >
+          {metiers.map((id) => (
+            <span key={id} className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700">
+              {getTrade(id)?.label}
+            </span>
+          ))}
+          <span className="px-1 text-brand-600 underline underline-offset-2">modifier</span>
+        </button>
+      </div>
 
-      {metier && (
-        <Card padded={false}>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Grille tarifaire</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                {items.length} prestation{items.length !== 1 ? 's' : ''}
-                {trade && <> · TVA conseillée&nbsp;: {formatPercent(trade.vatRate)}</>}
-              </p>
-            </div>
-            <Button size="sm" variant="secondary" onClick={loadPreset}>
-              <Wand2 className="size-4" />
-              Prestations types
-            </Button>
+      {items.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 border-t border-slate-100 px-5 py-10 text-center">
+          <p className="text-sm text-slate-600">Votre liste est vide.</p>
+          <Button size="sm" variant="secondary" onClick={loadPreset}>
+            <Wand2 className="size-4" aria-hidden="true" />
+            Remplir avec les prix courants
+          </Button>
+        </div>
+      ) : (
+        <div role="table" aria-label="Vos prix" className="px-5">
+          <div
+            role="row"
+            className="hidden grid-cols-[minmax(0,1fr)_6.5rem_8rem_2.5rem] gap-2 border-b border-slate-100 pb-2 text-xs font-medium text-slate-500 sm:grid"
+          >
+            <span role="columnheader">Prestation</span>
+            <span role="columnheader">Unité</span>
+            <span role="columnheader" className="text-right pr-7">Prix HT</span>
+            <span role="columnheader" className="sr-only">Supprimer</span>
           </div>
-
-          <div className="space-y-2 px-5 py-4">
-            {items.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-400">
-                Aucune prestation. Ajoutez-en une ou chargez les prestations types du métier.
-              </p>
-            ) : (
-              items.map((it) => (
-                <div key={it.id} className="flex items-center gap-2">
-                  <Input
-                    value={it.label}
-                    onChange={(e) => updateItem(it.id, { label: e.target.value })}
-                    placeholder="Désignation de la prestation"
-                    className="flex-1"
-                  />
-                  <Select
-                    value={it.unit}
-                    onChange={(e) => updateItem(it.id, { unit: e.target.value })}
-                    className="w-24"
-                  >
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u} value={u}>
-                        {unitLabel(u)}
-                      </option>
-                    ))}
-                  </Select>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={it.unitPrice || ''}
-                      onChange={(e) => updateItem(it.id, { unitPrice: Number(e.target.value) || 0 })}
-                      placeholder="PU HT"
-                      className="w-24"
-                    />
-                    <span className="text-sm text-slate-400">€</span>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Supprimer la prestation"
-                    onClick={() => removeItem(it.id)}
-                    className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-              ))
-            )}
-            <button
-              type="button"
-              onClick={addItem}
-              className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+          {items.map((it) => (
+            <div
+              key={it.id}
+              role="row"
+              className="grid grid-cols-[minmax(0,1fr)_6.5rem_2.5rem] gap-2 border-b border-slate-100 py-2 sm:grid-cols-[minmax(0,1fr)_6.5rem_8rem_2.5rem]"
             >
-              <Plus className="size-4" /> Ajouter une prestation
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-5 py-4">
-            <Button onClick={save} loading={saving}>
-              Enregistrer le catalogue
+              <div role="cell" className="col-span-3 sm:col-span-1">
+                <Input
+                  value={it.label}
+                  onChange={(e) => updateItem(it.id, { label: e.target.value })}
+                  placeholder="Ex. Pose de robinetterie"
+                  aria-label="Prestation"
+                />
+              </div>
+              <div role="cell">
+                <Select
+                  value={it.unit}
+                  onChange={(e) => updateItem(it.id, { unit: e.target.value })}
+                  aria-label="Unité"
+                >
+                  {UNIT_OPTIONS.map((u) => (
+                    <option key={u} value={u}>
+                      {unitLabel(u)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div role="cell" className="relative">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={it.unitPrice || ''}
+                  onChange={(e) => updateItem(it.id, { unitPrice: Number(e.target.value) || 0 })}
+                  placeholder="0"
+                  aria-label="Prix HT en euros"
+                  className="pr-7 text-right tabular-nums"
+                />
+                <span aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">€</span>
+              </div>
+              <div role="cell">
+                <button
+                  type="button"
+                  aria-label={`Supprimer ${it.label || 'la prestation'}`}
+                  title="Supprimer"
+                  onClick={() => removeItem(it.id)}
+                  className="grid size-10 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          ))}
+          <div className="py-2">
+            <Button size="sm" variant="ghost" onClick={addItem}>
+              <Plus className="size-4" aria-hidden="true" />
+              Ajouter une ligne
             </Button>
-            {saved && (
-              <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
-                <Check className="size-4" />
-                Catalogue enregistré
-              </span>
-            )}
-            {saveError && <span className="text-sm text-rose-600">{saveError}</span>}
           </div>
-        </Card>
+        </div>
       )}
-    </div>
+
+      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-5 py-4">
+        <Button onClick={save} loading={saving} disabled={!dirty && !saving}>
+          Enregistrer
+        </Button>
+        {saved && (
+          <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700" role="status">
+            <Check className="size-4" aria-hidden="true" />
+            Enregistré
+          </span>
+        )}
+        {saveError && <span className="text-sm text-rose-600" role="alert">{saveError}</span>}
+      </div>
+    </Card>
   );
 }
 
@@ -517,110 +559,95 @@ function ZoneSection() {
     if (apiZones) setCodes(apiZones.map((z) => z.postalCode));
   }, [apiZones]);
 
-  const addCode = () => {
-    const code = draft.trim();
-    if (!/^\d{5}$/.test(code)) {
-      setSaveError(`« ${code} » n'est pas un code postal valide (5 chiffres).`);
-      return;
-    }
+  const persist = async (next: string[]) => {
+    const prev = codes;
+    setCodes(next);
+    setSaved(false);
     setSaveError('');
-    setSaved(false);
-    if (!codes.includes(code)) setCodes((prev) => [...prev, code].sort());
-    setDraft('');
-  };
-
-  const removeCode = (code: string) => {
-    setCodes((prev) => prev.filter((c) => c !== code));
-    setSaved(false);
-  };
-
-  const save = async () => {
     setSaving(true);
-    setSaveError('');
     try {
-      await api.put('/api/v1/zones', codes.map((postalCode) => ({ postalCode })));
+      await api.put('/api/v1/zones', next.map((postalCode) => ({ postalCode })));
       setSaved(true);
     } catch (e) {
+      setCodes(prev);
       setSaveError((e as Error).message);
     } finally {
       setSaving(false);
     }
   };
 
+  const addCode = () => {
+    const code = draft.trim();
+    if (!/^\d{5}$/.test(code)) {
+      setSaveError('Un code postal fait 5 chiffres.');
+      return;
+    }
+    setDraft('');
+    if (!codes.includes(code)) persist([...codes, code].sort());
+  };
+
+  const removeCode = (code: string) => persist(codes.filter((c) => c !== code));
+
   if (loading || error) return null; // la grille au-dessus affiche déjà l'état d'erreur
 
   return (
-    <Card padded={false}>
-      <div className="border-b border-slate-100 px-5 py-4">
-        <div className="flex items-center gap-2">
-          <MapPin className="size-4 text-brand-600" />
-          <h2 className="text-base font-semibold text-slate-900">Zone d'intervention</h2>
-        </div>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Les codes postaux où vous intervenez. Hors zone, le chat transmet la demande en
-          prospect à rappeler au lieu de chiffrer un devis.
-        </p>
-      </div>
+    <Card>
+      <CardHeader
+        title="Zone d’intervention"
+      />
 
-      <div className="px-5 py-4">
-        <div className="flex items-center gap-2">
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addCode();
-              }
-            }}
-            placeholder="Ex. 75011"
-            inputMode="numeric"
-            className="max-w-[140px]"
-          />
-          <Button size="sm" variant="secondary" onClick={addCode}>
-            <Plus className="size-4" /> Ajouter
-          </Button>
-        </div>
-
-        {codes.length === 0 ? (
-          <p className="mt-4 text-sm text-amber-600">
-            Aucun code postal : le chat ne pourra pas chiffrer de devis tant que votre zone
-            n'est pas définie.
-          </p>
-        ) : (
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {codes.map((code) => (
-              <span
-                key={code}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm text-slate-700"
-              >
-                {code}
-                <button
-                  type="button"
-                  aria-label={`Retirer ${code}`}
-                  onClick={() => removeCode(code)}
-                  className="text-slate-400 hover:text-rose-600"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-5 py-4">
-        <Button onClick={save} loading={saving}>
-          Enregistrer la zone
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          addCode();
+        }}
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Code postal"
+          aria-label="Code postal à ajouter"
+          inputMode="numeric"
+          maxLength={5}
+          className="max-w-[140px]"
+        />
+        <Button type="submit" size="sm" variant="secondary">
+          <Plus className="size-4" aria-hidden="true" /> Ajouter
         </Button>
-        {saved && (
-          <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
-            <Check className="size-4" />
-            Zone enregistrée
-          </span>
-        )}
-        {saveError && <span className="text-sm text-rose-600">{saveError}</span>}
-      </div>
+        <span className="text-sm" role="status">
+          {saving && <span className="text-slate-500">Enregistrement…</span>}
+          {saved && !saving && (
+            <span className="inline-flex items-center gap-1 text-emerald-700">
+              <Check className="size-4" aria-hidden="true" /> Enregistré
+            </span>
+          )}
+        </span>
+      </form>
+      {saveError && <p className="mt-2 text-sm text-rose-600" role="alert">{saveError}</p>}
+
+      {codes.length === 0 ? (
+        <p className="mt-4 text-sm text-amber-700">Aucun code postal.</p>
+      ) : (
+        <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Codes postaux couverts">
+          {codes.map((code) => (
+            <li
+              key={code}
+              className="inline-flex items-center gap-0.5 rounded-md bg-slate-100 py-0.5 pl-2 pr-0.5 text-sm tabular-nums text-slate-700"
+            >
+              {code}
+              <button
+                type="button"
+                aria-label={`Retirer ${code}`}
+                onClick={() => removeCode(code)}
+                className="grid size-6 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-brand-500"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

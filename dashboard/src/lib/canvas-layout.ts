@@ -1,4 +1,4 @@
-import type { CanvasEl, CanvasElType } from '@/types';
+import type { CanvasEl, CanvasElType, TableColumn, TableStyle } from '@/types';
 
 export const ELEMENT_META: Record<CanvasElType, { label: string; color: string }> = {
   logo:            { label: 'Logo',                color: '#8b5cf6' },
@@ -16,13 +16,14 @@ export const ELEMENT_META: Record<CanvasElType, { label: string; color: string }
   custom_text:     { label: 'Texte libre',         color: '#ec4899' },
   shape_rect:      { label: 'Rectangle',           color: '#ec4899' },
   shape_ellipse:   { label: 'Cercle',              color: '#ec4899' },
+  shape_triangle:  { label: 'Triangle',            color: '#ec4899' },
   shape_line:      { label: 'Ligne',               color: '#ec4899' },
   image:           { label: 'Image',               color: '#ec4899' },
 };
 
 // Éléments créés par l'utilisateur (supprimables, rendus tels quels).
 export const CUSTOM_TYPES: ReadonlySet<CanvasElType> = new Set([
-  'custom_text', 'shape_rect', 'shape_ellipse', 'shape_line', 'image',
+  'custom_text', 'shape_rect', 'shape_ellipse', 'shape_triangle', 'shape_line', 'image',
 ]);
 
 export const DEFAULT_CANVAS_LAYOUT: CanvasEl[] = [
@@ -47,4 +48,38 @@ export function withDefaultElements(layout: CanvasEl[]): CanvasEl[] {
     (e) => !CUSTOM_TYPES.has(e.type) && !present.has(e.type),
   );
   return missing.length ? [...layout, ...missing.map((e) => ({ ...e }))] : layout;
+}
+
+// ── Tableau des postes : colonnes et style par défaut ─────────────────────────
+export const DEFAULT_TABLE_COLUMNS: TableColumn[] = [
+  { key: 'label', label: 'Désignation', visible: true },
+  { key: 'quantity', label: 'Qté', visible: true },
+  { key: 'unit', label: 'Unité', visible: true },
+  { key: 'unitPrice', label: 'PU HT', visible: true },
+  { key: 'total', label: 'Total HT', visible: true },
+];
+
+export const COLUMN_ALIGN: Record<TableColumn['key'], 'left' | 'center' | 'right'> = {
+  label: 'left', quantity: 'right', unit: 'center', unitPrice: 'right', total: 'right',
+};
+
+export const COLUMN_WIDTH: Record<TableColumn['key'], number | 'auto'> = {
+  label: 'auto', quantity: 44, unit: 52, unitPrice: 78, total: 78,
+};
+
+export type ResolvedTableStyle = Required<Omit<TableStyle, 'columns'>> & { columns: TableColumn[] };
+
+export function resolveTableStyle(st: TableStyle | undefined, accent: string): ResolvedTableStyle {
+  // Complète les colonnes manquantes (anciens modèles) en gardant l'ordre choisi.
+  const cols = st?.columns?.length ? [...st.columns] : DEFAULT_TABLE_COLUMNS.map((c) => ({ ...c }));
+  for (const d of DEFAULT_TABLE_COLUMNS) if (!cols.some((c) => c.key === d.key)) cols.push({ ...d });
+  return {
+    columns: cols,
+    headBg: st?.headBg || accent,
+    headColor: st?.headColor || '#ffffff',
+    textColor: st?.textColor || '#3c3c3c',
+    stripe: st?.stripe ?? '#f5f5f5',
+    border: st?.border ?? '',
+    showHead: st?.showHead ?? true,
+  };
 }

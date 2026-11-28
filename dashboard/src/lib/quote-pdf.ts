@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { computeQuoteTotals } from './quote-math';
 import { formatDate, formatPercent } from './format';
 import { unitLabel } from './units';
-import { DEFAULT_CANVAS_LAYOUT, withDefaultElements } from './canvas-layout';
+import { COLUMN_ALIGN, COLUMN_WIDTH, DEFAULT_CANVAS_LAYOUT, resolveTableStyle, withDefaultElements } from './canvas-layout';
 import type { CanvasEl, Company, Quote, QuoteTemplate } from '@/types';
 
 // Infos entreprise pour le PDF ; seul le nom est requis.
@@ -38,6 +38,19 @@ const A4 = { w: 595.28, h: 841.89 };
 
 function getEl(layout: CanvasEl[], type: CanvasEl['type']): CanvasEl | null {
   return layout.find((e) => e.type === type && e.visible) ?? null;
+}
+
+// Style d'un bloc de données : couleur personnalisée sinon gris par défaut.
+function ink(doc: jsPDF, el: CanvasEl, gray: number) {
+  if (el.color) doc.setTextColor(...hexToRgb(el.color));
+  else doc.setTextColor(gray);
+}
+const fsz = (el: CanvasEl | null, n: number) => n * (el?.textScale ?? 1);
+function blockBg(doc: jsPDF, el: CanvasEl | null) {
+  if (!el?.fill) return;
+  doc.setFillColor(...hexToRgb(el.fill));
+  if (el.radius) doc.roundedRect(el.x, el.y, el.w, el.h, el.radius, el.radius, 'F');
+  else doc.rect(el.x, el.y, el.w, el.h, 'F');
 }
 
 // Identité légale de l'émetteur (en-tête).
@@ -106,7 +119,6 @@ export function buildQuotePdf(
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const totals = computeQuoteTotals(quote);
-  const accent = hexToRgb(tpl.accentColor);
   const layout = withDefaultElements(tpl.canvasLayout ?? DEFAULT_CANVAS_LAYOUT);
 
   // ── Design importé : image de fond couvrant toute la page A4 ───────────────
@@ -119,8 +131,13 @@ export function buildQuotePdf(
   // ── Formes et images libres (sous le contenu, dans l'ordre des calques) ───
   for (const el of layout) {
     if (!el.visible) continue;
-    if (!['shape_rect', 'shape_ellipse', 'shape_line', 'image'].includes(el.type)) continue;
+    if (!['shape_rect', 'shape_ellipse', 'shape_triangle', 'shape_line', 'image'].includes(el.type)) continue;
     withOpacity(doc, el.opacity, () => drawDecor(doc, el));
+  }
+
+  // ── Fonds colorés des blocs de données ────────────────────────────────────
+  for (const el of layout) {
+    if (el.visible && !['shape_rect', 'shape_ellipse', 'shape_triangle', 'shape_line', 'image', 'custom_text'].includes(el.type)) blockBg(doc, el);
   }
 
   // ── Logo (maintien du ratio) ──────────────────────────────────────────────
@@ -142,8 +159,8 @@ export function buildQuotePdf(
   const compEl = getEl(layout, 'company_name');
   if (compEl) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(20);
+    doc.setFontSize(fsz(compEl, 16));
+    ink(doc, compEl, 20);
     doc.text(companyName, compEl.x, compEl.y + compEl.h * 0.8);
   }
 
@@ -153,12 +170,12 @@ export function buildQuotePdf(
     const identity = companyIdentityLines(comp);
     if (identity.length) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(110);
-      let dy = detailsEl.y + 9;
+      doc.setFontSize(fsz(detailsEl, 7.5));
+      ink(doc, detailsEl, 110);
+      let dy = detailsEl.y + fsz(detailsEl, 9);
       for (const l of identity) {
         doc.text(l, detailsEl.x, dy, { maxWidth: detailsEl.w });
-        dy += 10;
+        dy += fsz(detailsEl, 10);
       }
     }
   }
@@ -167,8 +184,8 @@ export function buildQuotePdf(
   const labelEl = getEl(layout, 'quote_label');
   if (labelEl) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(26);
-    doc.setTextColor(...accent);
+    doc.setFontSize(fsz(labelEl, 26));
+    doc.setTextColor(...hexToRgb(labelEl.accent || labelEl.color || tpl.accentColor));
     doc.text('DEVIS', labelEl.x + labelEl.w, labelEl.y + labelEl.h * 0.8, { align: 'right' });
   }
 
@@ -176,12 +193,12 @@ export function buildQuotePdf(
   const metaEl = getEl(layout, 'meta_block');
   if (metaEl) {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(110);
-    let my = metaEl.y + 13;
+    doc.setFontSize(fsz(metaEl, 9));
+    ink(doc, metaEl, 110);
+    let my = metaEl.y + fsz(metaEl, 13);
     if (tpl.showReference) {
       doc.text(`Référence : ${quote.reference}`, metaEl.x + metaEl.w, my, { align: 'right' });
-      my += 13;
+      my += fsz(metaEl, 13);
     }
     if (tpl.showDate) {
       doc.text(`Date : ${formatDate(quote.createdAt)}`, metaEl.x + metaEl.w, my, { align: 'right' });
@@ -191,16 +208,18 @@ export function buildQuotePdf(
   // ── Bloc client ───────────────────────────────────────────────────────────
   const clientEl = getEl(layout, 'client_block');
   if (clientEl) {
-    doc.setTextColor(20);
+    const k = clientEl.textScale ?? 1;
+    if (clientEl.accent) doc.setTextColor(...hexToRgb(clientEl.accent)); else ink(doc, clientEl, 20);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('ADRESSÉ À', clientEl.x, clientEl.y + 12);
+    doc.setFontSize(9 * k);
+    doc.text('ADRESSÉ À', clientEl.x, clientEl.y + 12 * k);
+    ink(doc, clientEl, 20);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(quote.clientName, clientEl.x, clientEl.y + 26);
+    doc.setFontSize(10 * k);
+    doc.text(quote.clientName, clientEl.x, clientEl.y + 26 * k);
     if (tpl.showClientEmail && quote.clientEmail) {
-      doc.setTextColor(110);
-      doc.text(quote.clientEmail, clientEl.x, clientEl.y + 39);
+      if (!clientEl.color) doc.setTextColor(110);
+      doc.text(quote.clientEmail, clientEl.x, clientEl.y + 39 * k);
     }
   }
 
@@ -209,26 +228,29 @@ export function buildQuotePdf(
   const startY = tableEl?.y ?? 196;
   const marginLeft = tableEl?.x ?? 40;
 
+  const ts = resolveTableStyle(tableEl?.tableStyle, tpl.accentColor);
+  const cols = ts.columns.filter((c) => c.visible);
+  const tableW = tableEl?.w ?? A4.w - 80;
+  const cellOf = (line: Quote['lines'][number], key: string) =>
+    key === 'label' ? line.label
+      : key === 'quantity' ? String(line.quantity)
+      : key === 'unit' ? unitLabel(line.unit)
+      : key === 'unitPrice' ? eur(line.unitPrice)
+      : eur(line.quantity * line.unitPrice);
+  const tSize = fsz(tableEl, 9);
+  const lineStyle = ts.border ? { lineColor: hexToRgb(ts.border), lineWidth: 0.5 } : { lineWidth: 0 };
+
   autoTable(doc, {
     startY,
-    head: [['Désignation', 'Qté', 'Unité', 'PU HT', 'Total HT']],
-    body: quote.lines.map((line) => [
-      line.label,
-      String(line.quantity),
-      unitLabel(line.unit),
-      eur(line.unitPrice),
-      eur(line.quantity * line.unitPrice),
-    ]),
-    headStyles: { fillColor: accent, fontSize: 9, fontStyle: 'bold' },
-    styles: { fontSize: 9, cellPadding: 5 },
-    columnStyles: {
-      0: { cellWidth: 'auto' },
-      1: { halign: 'right', cellWidth: 44 },
-      2: { halign: 'center', cellWidth: 52 },
-      3: { halign: 'right', cellWidth: 78 },
-      4: { halign: 'right', cellWidth: 78 },
-    },
-    margin: { left: marginLeft, right: 40 },
+    head: ts.showHead ? [cols.map((c) => c.label)] : undefined,
+    body: quote.lines.map((line) => cols.map((c) => cellOf(line, c.key))),
+    theme: 'plain',
+    headStyles: { fillColor: hexToRgb(ts.headBg), textColor: hexToRgb(ts.headColor), fontSize: tSize, fontStyle: 'bold' },
+    styles: { fontSize: tSize, cellPadding: 5, textColor: hexToRgb(ts.textColor), ...lineStyle },
+    alternateRowStyles: ts.stripe ? { fillColor: hexToRgb(ts.stripe) } : {},
+    columnStyles: Object.fromEntries(cols.map((c, i) => [i, { halign: COLUMN_ALIGN[c.key], cellWidth: COLUMN_WIDTH[c.key] }])),
+    tableWidth: tableW,
+    margin: { left: marginLeft, right: Math.max(0, A4.w - marginLeft - tableW) },
   });
 
   // ── Totaux (HT, remise éventuelle, TVA, TTC) ──────────────────────────────
@@ -238,8 +260,10 @@ export function buildQuotePdf(
   const tx = totalsEl?.x ?? 370;
   const tRight = totalsEl ? totalsEl.x + totalsEl.w : 555;
 
-  doc.setFontSize(9);
-  doc.setTextColor(90);
+  const tk = totalsEl?.textScale ?? 1;
+  const tAccent = hexToRgb(totalsEl?.accent || tpl.accentColor);
+  doc.setFontSize(9 * tk);
+  if (totalsEl?.color) doc.setTextColor(...hexToRgb(totalsEl.color)); else doc.setTextColor(90);
   doc.setFont('helvetica', 'normal');
   let line = ty;
   doc.text('Total HT', tx, line);
@@ -265,41 +289,41 @@ export function buildQuotePdf(
     doc.text(eur(totals.vat), tRight, line, { align: 'right' });
   }
 
-  doc.setDrawColor(...accent);
+  doc.setDrawColor(...tAccent);
   doc.setLineWidth(0.5);
-  doc.line(tx, line + 6, tRight, line + 6);
+  doc.line(tx, line + 6 * tk, tRight, line + 6 * tk);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...accent);
-  doc.text(comp.vatExempt ? 'Total' : 'Total TTC', tx, line + 20);
-  doc.text(eur(totals.total), tRight, line + 20, { align: 'right' });
+  doc.setFontSize(11 * tk);
+  doc.setTextColor(...tAccent);
+  doc.text(comp.vatExempt ? 'Total' : 'Total TTC', tx, line + 20 * tk);
+  doc.text(eur(totals.total), tRight, line + 20 * tk, { align: 'right' });
 
   // ── Conditions / mentions du devis ────────────────────────────────────────
   const condEl = getEl(layout, 'conditions');
   if (condEl && quote.notes) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(20);
-    doc.text('CONDITIONS', condEl.x, condEl.y + 11);
+    doc.setFontSize(fsz(condEl, 9));
+    if (condEl.accent) doc.setTextColor(...hexToRgb(condEl.accent)); else ink(doc, condEl, 20);
+    doc.text('CONDITIONS', condEl.x, condEl.y + fsz(condEl, 11));
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(90);
-    doc.text(quote.notes, condEl.x, condEl.y + 25, { maxWidth: condEl.w });
+    ink(doc, condEl, 90);
+    doc.text(quote.notes, condEl.x, condEl.y + fsz(condEl, 25), { maxWidth: condEl.w });
   }
 
   // ── Cadre signature (« Bon pour accord ») ─────────────────────────────────
   const signEl = getEl(layout, 'signature');
   if (signEl) {
-    doc.setDrawColor(180);
+    if (signEl.accent) doc.setDrawColor(...hexToRgb(signEl.accent)); else doc.setDrawColor(180);
     doc.setLineWidth(0.5);
     doc.roundedRect(signEl.x, signEl.y, signEl.w, signEl.h, 3, 3);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(90);
-    doc.text('BON POUR ACCORD', signEl.x + 8, signEl.y + 14);
+    doc.setFontSize(fsz(signEl, 8));
+    ink(doc, signEl, 90);
+    doc.text('BON POUR ACCORD', signEl.x + 8, signEl.y + fsz(signEl, 14));
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(140);
-    doc.text('Date et signature du client', signEl.x + 8, signEl.y + 26);
+    ink(doc, signEl, 140);
+    doc.text('Date et signature du client', signEl.x + 8, signEl.y + fsz(signEl, 26));
   }
 
   // ── Mentions légales obligatoires (assurance, TVA, médiation) ──────────────
@@ -308,12 +332,12 @@ export function buildQuotePdf(
     const mentions = legalMentions(comp);
     if (mentions.length) {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(120);
-      doc.text('MENTIONS LÉGALES', legalEl.x, legalEl.y + 7);
+      doc.setFontSize(fsz(legalEl, 7));
+      ink(doc, legalEl, 120);
+      doc.text('MENTIONS LÉGALES', legalEl.x, legalEl.y + fsz(legalEl, 7));
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
-      doc.setTextColor(140);
+      doc.setFontSize(fsz(legalEl, 6.8));
+      ink(doc, legalEl, 140);
       // Mentions séparées par « · », repliées sur la largeur du bloc.
       const wrapped = doc.splitTextToSize(mentions.join('  ·  '), legalEl.w) as string[];
       doc.text(wrapped, legalEl.x, legalEl.y + 17);
@@ -325,15 +349,16 @@ export function buildQuotePdf(
   for (const el of customEls) {
     withOpacity(doc, el.opacity, () => {
       const style = el.bold && el.italic ? 'bolditalic' : el.bold ? 'bold' : el.italic ? 'italic' : 'normal';
-      doc.setFont('helvetica', style);
+      doc.setFont(el.fontFamily ?? 'helvetica', style);
       const size = el.fontSize ?? 10;
       doc.setFontSize(size);
       const [r, g, b] = hexToRgb(el.color ?? '#111111');
       doc.setTextColor(r, g, b);
       const textX =
         el.align === 'right' ? el.x + el.w : el.align === 'center' ? el.x + el.w / 2 : el.x;
-      const lines = doc.splitTextToSize(el.content ?? '', el.w) as string[];
-      const lh = size * 1.2;
+      const text = el.uppercase ? (el.content ?? '').toUpperCase() : (el.content ?? '');
+      const lines = doc.splitTextToSize(text, el.w) as string[];
+      const lh = size * (el.lineHeight ?? 1.2);
       lines.forEach((line, i) => {
         const y = el.y + size * 0.95 + i * lh;
         doc.text(line, textX, y, { align: el.align ?? 'left' });
@@ -356,12 +381,12 @@ export function buildQuotePdf(
 
   if (tpl.footerText) {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(160);
+    doc.setFontSize(fsz(footerEl, 8));
+    if (footerEl?.color) doc.setTextColor(...hexToRgb(footerEl.color)); else doc.setTextColor(160);
     doc.text(tpl.footerText, footerX, footerY);
   }
-  doc.setTextColor(160);
-  doc.setFontSize(8);
+  if (footerEl?.color) doc.setTextColor(...hexToRgb(footerEl.color)); else doc.setTextColor(160);
+  doc.setFontSize(fsz(footerEl, 8));
   doc.text(companyName, footerRight, footerY, { align: 'right' });
 
   return doc;
@@ -392,13 +417,19 @@ function drawDecor(doc: jsPDF, el: CanvasEl) {
   if (el.type === 'shape_line') {
     const [r, g, b] = hexToRgb(el.stroke || el.fill || '#111111');
     doc.setDrawColor(r, g, b);
-    doc.setLineWidth(Math.max(0.5, sw || el.h));
+    const lw = Math.max(0.5, sw || el.h);
+    doc.setLineWidth(lw);
+    if (el.dashed) doc.setLineDashPattern([lw * 3, lw * 2], 0);
     doc.line(el.x, el.y + el.h / 2, el.x + el.w, el.y + el.h / 2);
+    if (el.dashed) doc.setLineDashPattern([], 0);
     return;
   }
   const style = hasFill && hasStroke ? 'FD' : hasFill ? 'F' : hasStroke ? 'S' : null;
   if (!style) return;
-  if (el.type === 'shape_ellipse') {
+  if (hasStroke && el.dashed) doc.setLineDashPattern([sw * 3, sw * 2], 0);
+  if (el.type === 'shape_triangle') {
+    doc.triangle(el.x + el.w / 2, el.y, el.x + el.w, el.y + el.h, el.x, el.y + el.h, style);
+  } else if (el.type === 'shape_ellipse') {
     doc.ellipse(el.x + el.w / 2, el.y + el.h / 2, el.w / 2, el.h / 2, style);
   } else if (el.radius) {
     const r = Math.min(el.radius, el.w / 2, el.h / 2);
@@ -406,4 +437,5 @@ function drawDecor(doc: jsPDF, el: CanvasEl) {
   } else {
     doc.rect(el.x, el.y, el.w, el.h, style);
   }
+  if (hasStroke && el.dashed) doc.setLineDashPattern([], 0);
 }

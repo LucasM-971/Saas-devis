@@ -22,6 +22,7 @@ from app.services.pricing_engine import LineInput, compute_quote
 from app.services.quota import quote_quota
 from app.services.quote_mailer import send_quote_email
 from app.services.quote_pdf import PdfUnavailable, render_quote_pdf
+from app.services.company_setup import primary_metier
 from app.services.sample_quote import build_sample_quote
 from app.services.quote_state_machine import InvalidTransition, assert_transition, can_transition
 from app.services.quote_status import to_en, to_fr
@@ -213,7 +214,7 @@ def create_sample_quote(db: DbSession, membership: ActiveMembership) -> QuoteOut
     require_writer(membership)
     _assert_quota(db, membership)
     company = db.get(Company, membership.company_id)
-    payload = build_sample_quote(company.metier if company else None)
+    payload = build_sample_quote(primary_metier(company.metier) if company else None)
     return _create_draft(db, membership, payload, "a importé un devis exemple")
 
 

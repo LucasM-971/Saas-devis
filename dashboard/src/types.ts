@@ -30,7 +30,8 @@ export type Company = {
   contactEmail?: string; // email de contact affiché sur les devis
   contactPhone?: string; // téléphone de contact
   defaultVatRate?: number; // ex. 0.20
-  metier?: TradeId; // métier du bâtiment (pilote le catalogue de prestations)
+  metier?: TradeId; // métier principal (pilote le catalogue de prestations)
+  metiers?: TradeId[]; // tous les métiers exercés (le premier est le principal)
   plan?: Plan; // tier d'abonnement (gates premium)
   // ── Mentions légales françaises affichées sur les devis ──────────────────
   legalForm?: string; // forme juridique (SARL, SASU, auto-entrepreneur…)
@@ -162,6 +163,7 @@ export type CanvasElType =
   | 'custom_text'
   | 'shape_rect'
   | 'shape_ellipse'
+  | 'shape_triangle'
   | 'shape_line'
   | 'image';
 
@@ -183,10 +185,32 @@ export type CanvasEl = {
   stroke?: string;      // formes : couleur du contour
   strokeWidth?: number; // formes : épaisseur du contour (pt)
   radius?: number;      // rectangle : arrondi des coins (pt)
+  dashed?: boolean;     // contour / ligne en pointillés
+  fontFamily?: 'helvetica' | 'times' | 'courier';
+  lineHeight?: number;  // interligne (×taille)
+  uppercase?: boolean;
   opacity?: number;     // 0-1
   src?: string;         // image : data URL
   locked?: boolean;
   visible: boolean;
+  // Blocs de données : personnalisation du rendu.
+  accent?: string;      // couleur d'accent (titre DEVIS, total TTC, filet)
+  textScale?: number;   // multiplicateur de taille du texte (1 = défaut)
+  tableStyle?: TableStyle;
+};
+
+export type TableColumnKey = 'label' | 'quantity' | 'unit' | 'unitPrice' | 'total';
+
+export type TableColumn = { key: TableColumnKey; label: string; visible: boolean };
+
+export type TableStyle = {
+  columns?: TableColumn[];   // ordre, libellés et visibilité
+  headBg?: string;           // fond de l'en-tête
+  headColor?: string;        // texte de l'en-tête
+  textColor?: string;        // texte des lignes
+  stripe?: string;           // couleur des lignes alternées ('' = aucune)
+  border?: string;           // couleur des bordures ('' = aucune)
+  showHead?: boolean;
 };
 
 // Catégorie d'événement du journal d'activité (pilote l'icône et la couleur).

@@ -6,7 +6,13 @@ from sqlalchemy import func, select
 from app.api.deps import ActiveMembership, CurrentUser, DbSession
 from app.models import Company, Membership
 from app.schemas.company import CompanyCreateIn, CompanyDetailOut, CompanyUpdateIn
-from app.services.company_setup import is_known_metier, sync_service_with_metier
+from app.services.company_setup import (
+    is_known_metier,
+    parse_metiers,
+    primary_metier,
+    sync_service_with_metier,
+    sync_services_with_metiers,
+)
 from app.services.features import FREE_MAX_OWNED_COMPANIES, has_feature
 from app.services.permissions import require_admin
 from app.services.slugs import unique_company_slug
@@ -24,7 +30,8 @@ def serialize_company(company: Company) -> CompanyDetailOut:
         contactEmail=company.contact_email,
         contactPhone=company.contact_phone,
         defaultVatRate=float(company.default_vat_rate),
-        metier=company.metier,
+        metier=primary_metier(company.metier),
+        metiers=parse_metiers(company.metier),
         plan=company.plan,
         legalForm=company.legal_form,
         shareCapital=company.share_capital,
@@ -69,7 +76,13 @@ def update_current_company(
         company.contact_phone = payload.contactPhone or None
     if payload.defaultVatRate is not None:
         company.default_vat_rate = payload.defaultVatRate
-    if payload.metier is not None:
+    if payload.metiers is not None:
+        metiers = list(dict.fromkeys(payload.metiers))
+        if any(not is_known_metier(m) for m in metiers):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Métier inconnu")
+        company.metier = ",".join(metiers) or None
+        sync_services_with_metiers(db, company.id, metiers)
+    elif payload.metier is not None:
         if payload.metier and not is_known_metier(payload.metier):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Métier inconnu")
         company.metier = payload.metier or None

@@ -30,6 +30,10 @@ export type Trade = {
   vatRate: number; // TVA conseillée pour le métier
   tint: { icon: string; active: string }; // classes Tailwind (littérales pour le JIT)
   catalog: CatalogSeed[];
+  // Catégories de tarif au m² proposées à l'assistant ; absent = métier non chiffré au m².
+  m2Categories?: string[];
+  // Boutons du message « Je veux un devis » du modèle de départ de l'assistant.
+  projectTypes: string[];
 };
 
 export const TRADES: Trade[] = [
@@ -40,6 +44,8 @@ export const TRADES: Trade[] = [
     icon: Leaf,
     vatRate: 0.055,
     tint: { icon: 'bg-emerald-100 text-emerald-700', active: 'border-emerald-500 bg-emerald-50' },
+    m2Categories: ['Isolation', 'Toiture', 'Façade', 'Plancher'],
+    projectTypes: ['Isolation', 'Chauffage / PAC', 'Solaire', 'Autre projet'],
     catalog: [
       { label: 'Isolation des combles perdus', unit: 'm2', unitPrice: 25 },
       { label: "Isolation des murs par l'extérieur (ITE)", unit: 'm2', unitPrice: 130 },
@@ -58,6 +64,7 @@ export const TRADES: Trade[] = [
     icon: Droplets,
     vatRate: 0.1,
     tint: { icon: 'bg-sky-100 text-sky-700', active: 'border-sky-500 bg-sky-50' },
+    projectTypes: ['Dépannage / fuite', 'Chauffe-eau / chaudière', 'Salle de bain', 'Autre projet'],
     catalog: [
       { label: 'Recherche de fuite', unit: 'flat', unitPrice: 90 },
       { label: 'Remplacement chauffe-eau électrique', unit: 'unit', unitPrice: 650 },
@@ -76,6 +83,7 @@ export const TRADES: Trade[] = [
     icon: Zap,
     vatRate: 0.1,
     tint: { icon: 'bg-amber-100 text-amber-700', active: 'border-amber-500 bg-amber-50' },
+    projectTypes: ['Dépannage', 'Mise aux normes', 'Nouvelle installation', 'Autre projet'],
     catalog: [
       { label: 'Mise aux normes du tableau électrique', unit: 'flat', unitPrice: 1200 },
       { label: 'Remplacement tableau électrique', unit: 'unit', unitPrice: 850 },
@@ -94,6 +102,8 @@ export const TRADES: Trade[] = [
     icon: DoorOpen,
     vatRate: 0.1,
     tint: { icon: 'bg-orange-100 text-orange-700', active: 'border-orange-500 bg-orange-50' },
+    m2Categories: ['Parquet', 'Baie vitrée', 'Terrasse'],
+    projectTypes: ['Fenêtres', 'Portes', 'Volets', 'Autre projet'],
     catalog: [
       { label: 'Fenêtre PVC double vitrage', unit: 'unit', unitPrice: 480 },
       { label: 'Fenêtre aluminium', unit: 'unit', unitPrice: 720 },
@@ -112,6 +122,8 @@ export const TRADES: Trade[] = [
     icon: PaintRoller,
     vatRate: 0.1,
     tint: { icon: 'bg-violet-100 text-violet-700', active: 'border-violet-500 bg-violet-50' },
+    m2Categories: ['Mur', 'Plafond', 'Sol', 'Façade'],
+    projectTypes: ['Peinture', 'Sols', 'Papier peint', 'Autre projet'],
     catalog: [
       { label: 'Peinture murs (2 couches)', unit: 'm2', unitPrice: 28 },
       { label: 'Peinture plafond', unit: 'm2', unitPrice: 32 },
@@ -130,6 +142,7 @@ export const TRADES: Trade[] = [
     icon: KeyRound,
     vatRate: 0.2,
     tint: { icon: 'bg-slate-200 text-slate-700', active: 'border-slate-500 bg-slate-100' },
+    projectTypes: ['Porte claquée / bloquée', 'Changer une serrure', 'Blindage', 'Autre besoin'],
     catalog: [
       { label: 'Ouverture de porte claquée', unit: 'flat', unitPrice: 90 },
       { label: 'Ouverture de porte fermée à clé', unit: 'flat', unitPrice: 150 },
